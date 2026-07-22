@@ -1,6 +1,6 @@
 # PhaSoMix
 
-**Parent-of-origin phasing of somatic mutations in admixed cancer genomes**
+**Phase Somatic mutations in adMixed cancer genomes**
 
 PhaSoMix assigns somatic mutations to their parental haplotype of origin in admixed cancer patients, without requiring parent or parent-surrogate sequencing. It exploits the genetic divergence between maternal and paternal haplotypes in recently admixed individuals as a proxy for parent-of-origin, and is applied here to the Pan-Cancer Analysis of Whole Genomes (PCAWG) cohort to test whether the two parental genomes accumulate somatic mutations at equal rates.
 
