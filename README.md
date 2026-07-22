@@ -208,7 +208,7 @@ If you use PhaSoMix, please cite:
 
 ## Contact
 
-Maxime Lefèbvre — IRIBHM, Université Libre de Bruxelles (ULB)
+Maxime Lefèbvre — maxime.lefebvre@ulb.be  
 Maxime Tarabichi — maxime.tarabichi@ulb.be
 
 Issues and questions are welcome via the [GitHub issue tracker](https://github.com/IRIBHM-computational-groups/PhaSoMix/issues).
