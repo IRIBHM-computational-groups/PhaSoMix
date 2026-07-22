@@ -2,9 +2,7 @@
 
 **Parent-of-origin phasing of somatic mutations in admixed cancer genomes**
 
-PhaSoMix is a computational pipeline that assigns somatic mutations to their parental haplotype of origin in admixed cancer patients, without requiring parent or parent-surrogate sequencing. It exploits the genetic divergence between maternal and paternal haplotypes in recently admixed individuals as a proxy for parent-of-origin, and applies it to the Pan-Cancer Analysis of Whole Genomes (PCAWG) cohort to test whether the two parental genomes accumulate somatic mutations at equal rates.
-
-This repository contains the full pipeline described in:
+PhaSoMix assigns somatic mutations to their parental haplotype of origin in admixed cancer patients, without requiring parent or parent-surrogate sequencing. It exploits the genetic divergence between maternal and paternal haplotypes in recently admixed individuals as a proxy for parent-of-origin, and is applied here to the Pan-Cancer Analysis of Whole Genomes (PCAWG) cohort to test whether the two parental genomes accumulate somatic mutations at equal rates.
 
 > Lefèbvre M, Cléris A, Parmentier M, Van Loo P, Detours V, Tarabichi M. *Parent-of-origin phasing of somatic mutations shows equal mutation burden between parental genomes in human cancers.* (manuscript in preparation)
 
@@ -12,131 +10,182 @@ This repository contains the full pipeline described in:
 
 ## Overview
 
-In admixed individuals, the two parental haplotypes carry distinct local ancestries across part of the genome. PhaSoMix uses these ancestry-discriminant regions as a stand-in for parental identity, and combines local ancestry inference, SNP-in-read phasing, and sex-chromosome/mtDNA ancestry classification to phase somatic mutations to the maternal or paternal genome. Errors are quantified and propagated at every step to provide an upper bound on any true difference in mutation burden between the two parental haplotypes.
+In admixed individuals, the two parental haplotypes carry distinct local ancestries across part of the genome. PhaSoMix uses these ancestry-discriminant regions as a stand-in for parental identity, and combines local ancestry inference, SNP-in-read phasing, and sex-chromosome/mtDNA ancestry classification to phase somatic mutations to the maternal or paternal genome. Accuracy is benchmarked and propagated at every step to bound any true difference in mutation burden between the two parental haplotypes.
 
-The pipeline performs four main tasks:
+The pipeline is organized around five tasks:
 
-1. **Local ancestry inference** across the cohort to identify informative (admixed) patients, i.e. those in whom at least one ancestry uniquely tags a single parental haplotype.
-2. **Empirical phasing of somatic mutations** to nearby heterozygous SNPs using raw sequencing reads.
-3. **Parental (maternal/paternal) origin assignment** from mitochondrial DNA and chromosome X/Y ancestry.
-4. **Aggregation of phased mutations** by parental origin into genome-wide mutation burdens, corrected for allele-specific copy number.
-
-Simulation-based accuracy benchmarks (local ancestry inference, SNV phasing, sex-chromosome/mtDNA classification, copy-number correction) are used to propagate uncertainty through the pipeline and bound the detectable mutation-rate asymmetry between parental genomes.
+1. **Global ancestry inference** (ADMIXTURE) — identify ancestry-pure individuals to enrich the local ancestry reference panel.
+2. **SNP phasing and switch-error correction** (Beagle 5.2 + allelic-imbalance-based correction).
+3. **Local ancestry inference** (Gnomix) and identification of informative (admixed) patients via bipartite graph resolution of parental haplotypes.
+4. **Parental origin inference** (XGBoost on mtDNA/chrX/chrY) to resolve which haplotype is maternal and which is paternal.
+5. **Somatic mutation phasing and quantification**, corrected for allele-specific copy number, with per-sample and per-region outputs.
 
 ---
 
 ## Repository structure
 
+This reflects the current content of the repository:
+
 ```
 PhaSoMix/
-├── src/
-│   ├── admixed_inference.r                    # Identify admixed individuals from ADMIXTURE output
-│   ├── admixed_inference_accuracy.r            # Repeated CV accuracy of admixture-based classification
-│   ├── training_gnomix_paired.r                # Train Gnomix local ancestry models (pop/subpop pairs)
-│   ├── training_gnomix_paired_sim.r            # Train Gnomix models for simulation benchmarks
-│   ├── prediction_gnomix_paired_mixed_ancestry.r  # Local ancestry prediction on admixed PCAWG patients
-│   ├── prediction_gnomix_paired_simulations.r  # Local ancestry prediction on simulated individuals
-│   ├── accuracy_gnomix_paired.r                # Gnomix accuracy across ancestry pairs / switch-error rates
-│   ├── accuracy_sex_chr_paired.r               # XGBoost accuracy for chrX/chrY/mtDNA ancestry classification
-│   ├── training_XGboost_parental_origin.r      # Train XGBoost models for mtDNA/chrX/chrY ancestry
-│   ├── correct_SE_IS.r                         # Switch-error detection and correction in imbalanced segments
-│   ├── simulations_mixed_ancestry.r            # Simulate admixed genomes with controlled switch-error rates
-│   ├── SNV_quantification.r                    # Main CLI driver: phasing → ancestry → parental origin → quantification
-│   └── utils/
-│       ├── utility_functions.r                 # Shared I/O, validation, and ancestry helper functions
-│       ├── writevcf.r                          # VCF writer (header + compression)
-│       ├── ADMIXTURE.r                         # PLINK/ADMIXTURE wrapper functions
-│       ├── extract_discriminant_SNPs.r         # Ancestry-informative SNP selection
-│       ├── XGBOOST.r                           # XGBoost training/prediction for sex chromosomes and mtDNA
-│       ├── infer_parental_origin.r             # Resolve maternal/paternal haplotype from mtDNA/chrX/chrY
-│       ├── SNV_phasing.r                       # SNV-to-SNP read-based phasing (mpileup overlap)
-│       ├── SNV_ancestry.r                      # Assign phased SNVs to a local-ancestry haplotype
-│       ├── get_BAF.r                           # B-allele frequency computation from allele counts
-│       ├── compute_SER_IS.r                    # Switch-error rate computation in imbalanced segments (PCF + LLR)
-│       ├── SNV_correction.r                    # Copy-number correction of SNV multiplicity
-│       ├── get_stats.r                         # Per-sample SNV counts by ancestry/CNV zone
-│       ├── local_quantification.r              # Region-level (gene/exon/intron/imprinted/CpG) quantification
-│       └── quantification_plotting.r           # Circos and summary plots per sample
-├── utils/
-│   └── unphase_vcf.sh                          # Strip phasing (| → /) from a VCF before re-phasing
-├── phase_PCAWG_mixed_ancestry.sh               # Beagle 5.2 phasing of admixed PCAWG samples, per chromosome
-├── software/                                   # Third-party binaries (PLINK, ADMIXTURE, Beagle .jar) — not versioned
-├── rawdata/                                    # Reference panels, genetic maps, annotation files (1kGP, PCAWG)
-├── input/                                      # Sample sheets, Gnomix config files
-└── output/                                     # Pipeline results (VCFs, ancestry calls, quantification tables, figures)
+├── input/
+│   ├── config_0.1cM.yaml                              # Gnomix configuration (window size, smoothing, calibration, …)
+│   └── input_path_F1_like_mono_x_admixed_gnomix_PCAWG_POP_no_AMR.tsv
+│                                                        # Sample sheet: sample, ancestry, project, hapA/hapB,
+│                                                        # sexe, paths to BAM/allelecount/SNV/CNA/CCF files
+│
+└── src/
+    ├── local_ancestry/
+    │   ├── training_gnomix.r                # Train Gnomix local ancestry models (super-population pairs)
+    │   ├── training_gnomix_sex_chr.r        # Train Gnomix models restricted to sex-chromosome analyses
+    │   ├── training_gnomix_sim.r            # Train Gnomix models for simulation benchmarks
+    │   ├── prediction_gnomix_PCAWG.r        # Predict local ancestry on admixed PCAWG patients
+    │   ├── prediction_gnomix_sim.r          # Predict local ancestry on simulated individuals
+    │   ├── accuracy_gnomix_sim.r            # Local ancestry accuracy vs. switch-error rate (simulations)
+    │   └── get_informative_patients.r       # Identify informative patients; parental haplotype resolution
+    │                                          via co-occurrence graph + bipartite colouring (igraph);
+    │                                          karyoplots of local ancestry per patient
+    │
+    ├── parental_inference/
+    │   ├── training_XGboost_parental_origin.r     # Train XGBoost models per ancestry pair on mtDNA/chrX/chrY
+    │   ├── infer_parental_ancestry_xgboost.r       # Resolve maternal/paternal haplotype for each patient
+    │   └── accuracy_XGboost_parental_origin.r      # Classification accuracy on held-out 1kGP samples
+    │
+    ├── pipeline/
+    │   ├── SNV_quantification.r             # Main CLI driver — runs the 4 steps below per sample
+    │   ├── SNV_phasing.r                    # Phase somatic SNVs to nearby heterozygous SNPs (mpileup overlap)
+    │   ├── SNV_ancestry.r                   # Assign each phased SNV to a local-ancestry haplotype
+    │   └── SNV_correction.r                 # Determine gained-copy status and correct SNV multiplicity for CN
+    │
+    ├── utils/
+    │   ├── utility_functions.r              # Shared I/O, validation, and ancestry helper functions
+    │   ├── writevcf.r                       # VCF writer (header + bgzip compression)
+    │   ├── ADMIXTURE.r                      # PLINK/ADMIXTURE wrapper functions
+    │   ├── score_SNPs.r                     # Ancestry-informativeness scoring of SNPs from 1kGP allele frequencies
+    │   ├── extract_discriminant_SNPs.r      # Select the most ancestry-discriminant SNPs
+    │   ├── XGBOOST.r                        # XGBoost training/prediction helpers for chrX/chrY/mtDNA
+    │   ├── genotyping_sex_chr.R             # Genotype mtDNA/chrX/chrY from 1kGP VCFs for XGBoost training
+    │   ├── allele_count_sex_chr.r           # Run alleleCounter on PCAWG BAMs at sex-chromosome/mtDNA loci
+    │   ├── minibam.r                        # Extract minibams around SNV/MNV positions for SNV phasing
+    │   ├── compute_SER_IS.r                 # Switch-error rate computation in imbalanced segments (PCF + LLR)
+    │   ├── correct_SE_IS.r                  # Apply switch-error correction across imbalanced segments
+    │   ├── get_BAF.r                        # B-allele frequency computation from allele counts
+    │   ├── get_stats.r                      # Per-sample SNV counts by ancestry / CNV zone
+    │   ├── local_quantification.r           # Region-level quantification (genes/exons/introns/imprinted/CpG)
+    │   ├── get_circos_plot.r                # Circos plot of SNV ancestry + CNV tracks per sample
+    │   ├── get_karyoplot.r                  # Karyoplot of Gnomix local ancestry calls per sample
+    │   ├── simulations.r                    # Simulate mixed-ancestry genomes with controlled switch-error rates
+    │   ├── phase_beagle.sh                  # Beagle 5.2 SNP phasing against 1kGP reference panels, per chromosome
+    │   └── unphase_vcf.sh                   # Strip phasing (`|` → `/`) from a VCF before re-phasing
+    │
+    └── accuracy/                            # Jupyter notebooks reproducing the accuracy/power benchmarks
+        ├── accuracy_local_ancestry.ipynb        #   Local ancestry inference accuracy (Gnomix, per ancestry pair/SER)
+        ├── accuracy_SNV_phasing.ipynb           #   SNV-to-SNP phasing accuracy
+        ├── accuracy_sex_chr.ipynb               #   mtDNA/chrX/chrY parental-origin classification accuracy
+        ├── accuracy_correction.ipynb            #   Copy-number correction accuracy (simulated + PCAWG)
+        ├── SE_rate_imbalance_zones.ipynb        #   Switch-error rate before/after correction (low/high coverage)
+        ├── comparison_pred_SNV_corrected_vs_bo_corrected.ipynb  # SE-correction impact on ancestry/SNV assignment
+        └── statictical_power.ipynb              #   Statistical power / null-distribution analysis
 ```
 
-> `software/`, `rawdata/`, `input/`, and `output/` are not tracked in version control (data and binaries); see [Requirements](#requirements) and [Data availability](#data-availability) for how to populate them.
+> `rawdata/`, `output/`, and `software/` are used throughout the scripts as relative paths (1kGP/PCAWG reference data, pipeline outputs, and third-party binaries such as PLINK, ADMIXTURE, and Beagle) but are not tracked in this repository, since they contain controlled-access data and large external binaries. See [Requirements](#requirements) and [Data availability](#data-availability) below to reconstitute them locally.
 
 ---
 
 ## Requirements
 
 ### External tools
-- [Beagle 5.2](https://faculty.washington.edu/browning/beagle/beagle.html) (SNP phasing)
-- [Gnomix](https://github.com/AI-sandbox/gnomix) (local ancestry inference)
-- [ADMIXTURE](https://dalexander.github.io/admixture/) (global ancestry inference)
+- [Beagle 5.2](https://faculty.washington.edu/browning/beagle/beagle.html) — SNP phasing
+- [Gnomix](https://github.com/AI-sandbox/gnomix) — local ancestry inference
+- [ADMIXTURE](https://dalexander.github.io/admixture/) — global ancestry inference
 - [PLINK 1.9](https://www.cog-genomics.org/plink/)
-- [bcftools](https://samtools.github.io/bcftools/) / [samtools](http://www.htslib.org/)
+- [bcftools](https://samtools.github.io/bcftools/) / [samtools](http://www.htslib.org/) / `bgzip` (htslib)
 - [alleleCounter](https://github.com/cancerit/alleleCount)
-- [pyega3](https://github.com/EGA-archive/ega-download-client) (EGA data download)
 
 ### R (≥ 4.x)
 ```r
 install.packages(c("data.table", "dplyr", "tidyr", "stringr", "parallel",
-                    "ggplot2", "patchwork", "ggnewscale", "circlize",
-                    "reshape2", "RColorBrewer", "optparse", "igraph"))
+                    "igraph", "optparse", "RColorBrewer", "circlize"))
 
 # Bioconductor
-BiocManager::install(c("GenomicRanges", "Biostrings", "karyoploteR", "copynumber"))
+BiocManager::install(c("GenomicRanges", "Biostrings", "karyoploteR"))
 
 install.packages("xgboost")
-install.packages("lme4")  # downstream mutation-asymmetry testing
 ```
+
+### Python / Jupyter
+The notebooks in `src/accuracy/` require a Jupyter kernel with `R` (via `IRkernel`) or Python, depending on the notebook; see each notebook's first cell for its specific dependencies.
 
 ---
 
 ## Pipeline workflow
 
-The pipeline is organized into five stages, run roughly in this order:
-
-**1. Global ancestry & informative patient identification**
-```bash
-Rscript src/admixed_inference.r
+**1. Global ancestry inference**
+```r
+source("src/utils/score_SNPs.r")
+source("src/utils/extract_discriminant_SNPs.r")
+source("src/utils/ADMIXTURE.r")
 ```
-Runs ADMIXTURE on discriminant SNPs and identifies admixed PCAWG patients whose parental haplotypes carry distinguishable ancestries (strict F1 or partially informative).
+Scores 1kGP SNPs by ancestry informativeness, extracts the most discriminant subset, and runs ADMIXTURE to flag ancestry-pure PCAWG individuals (dominant ancestry > 0.95), which are added to the Gnomix training set.
 
-**2. Phasing and switch-error correction**
+**2. SNP phasing and switch-error correction**
 ```bash
-bash phase_PCAWG_mixed_ancestry.sh
-Rscript src/correct_SE_IS.r
+bash src/utils/phase_beagle.sh
 ```
-Phases genotypes with Beagle 5.2 against the 1kGP high-coverage reference panel, then detects and corrects residual switch errors within allelic-imbalance segments using BAF-based piecewise-constant fitting and a likelihood-ratio test.
+```r
+source("src/utils/correct_SE_IS.r")   # calls compute_SER_IS.r / get_BAF.r internally
+```
+Phases 1kGP + PCAWG genotypes with Beagle 5.2, then detects and corrects residual switch errors within allelic-imbalance segments using BAF-based piecewise-constant fitting and a likelihood-ratio test.
 
-**3. Local ancestry inference**
-```bash
-Rscript src/training_gnomix_paired.r
-Rscript src/prediction_gnomix_paired_mixed_ancestry.r
+**3. Local ancestry inference and informative patient identification**
+```r
+source("src/local_ancestry/training_gnomix.r")
+source("src/local_ancestry/prediction_gnomix_PCAWG.r")
+source("src/local_ancestry/get_informative_patients.r")
 ```
-Trains Gnomix models per super-population pair on 1kGP + ancestry-pure PCAWG haplotypes, then predicts local ancestry along each phased haplotype of the admixed patients.
+Trains Gnomix per super-population pair, predicts local ancestry along each phased PCAWG haplotype, and identifies informative (admixed) patients by resolving parental haplotypes through a co-occurrence graph and bipartite colouring.
 
-**4. Parental origin resolution**
-```bash
-Rscript src/training_XGboost_parental_origin.r
+**4. Parental origin inference**
+```r
+source("src/parental_inference/training_XGboost_parental_origin.r")
+source("src/parental_inference/infer_parental_ancestry_xgboost.r")
 ```
-Trains XGBoost classifiers on mtDNA, chrX, and chrY genotypes to resolve maternal versus paternal ancestry for each informative patient (called internally via `infer_parental_origin()` in the next step).
+Trains XGBoost classifiers on mtDNA/chrX/chrY genotypes per ancestry pair, then resolves which haplotype (hapA/hapB) is maternal and which is paternal for each informative patient.
 
 **5. Somatic mutation phasing and quantification**
 ```bash
-Rscript src/SNV_quantification.r \
-    -i path_info_mixed_ancestry.tsv \
+Rscript src/pipeline/SNV_quantification.r \
+    -i input/input_path_F1_like_mono_x_admixed_gnomix_PCAWG_POP_no_AMR.tsv \
     -o output/ \
     -v "rawdata/vcf/chrCHR_phased.vcf.gz" \
-    -r rawdata/reference/hg19.fa
+    -s "rawdata/vcf/chrCHR_sex_phased.vcf.gz" \
+    -r rawdata/reference/hg19.fa \
+    -g output/local_ancestry/prediction/ \
+    -x output/parental_origin/training/ \
+    -t 10
 ```
-The main driver script: phases somatic SNVs to nearby heterozygous SNPs (read-based), assigns each phased SNV to a local-ancestry haplotype, resolves parental origin, corrects mutation counts for copy number, and produces per-sample and per-region (gene/exon/intron/imprinted/CpG) quantification tables and plots.
+The main driver. For each sample it: (1) phases somatic SNVs to nearby heterozygous SNPs, (2) assigns each phased SNV to a local-ancestry haplotype, (3) corrects SNV counts for allele-specific copy number, (4) generates a circos plot, and (5) computes global and region-level (gene/exon/intron/imprinted/CpG) mutation statistics per parental haplotype.
 
-Accuracy and simulation scripts (`accuracy_gnomix_paired.r`, `accuracy_sex_chr_paired.r`, `admixed_inference_accuracy.r`, `simulations_mixed_ancestry.r`, `prediction_gnomix_paired_simulations.r`) reproduce the benchmarking experiments used to quantify and propagate error at each pipeline step.
+| Flag | Description |
+|---|---|
+| `-i, --path_info_ma` | Sample sheet TSV (see `input/`) |
+| `-o, --output_path` | Output directory |
+| `-v, --vcf_ma` | Phased autosomal VCF, `CHR` placeholder for chromosome |
+| `-s, --vcf_ma_sex` | Phased sex-chromosome/mtDNA VCF |
+| `-r, --ref_genome_path` | Reference genome FASTA (hg19) |
+| `-g, --gnomix_pred_path` | Gnomix prediction directory |
+| `-x, --xgboost_model_path` | XGBoost parental-origin model directory |
+| `-a, --accuracy` | Accuracy summary file path |
+| `-t, --threads` | Number of threads (default: 10) |
+
+**Accuracy benchmarks.** `src/local_ancestry/accuracy_gnomix_sim.r`, `src/parental_inference/accuracy_XGboost_parental_origin.r`, and the notebooks in `src/accuracy/` reproduce the simulation- and PCAWG-based benchmarks (local ancestry accuracy vs. switch-error rate, SNV phasing accuracy, sex-chromosome/mtDNA classification, copy-number correction, and statistical power) used to bound the detectable mutation-rate asymmetry between parental genomes.
+
+---
+
+## Input data
+
+- **`input/config_0.1cM.yaml`** — Gnomix configuration (0.1 cM window size, smoothing, context ratio, calibration flag).
+- **`input/input_path_F1_like_mono_x_admixed_gnomix_PCAWG_POP_no_AMR.tsv`** — sample sheet consumed by `SNV_quantification.r`, with one row per sample: `sample`, `ancestry`, `project`, `hapA`/`hapB` (ancestry sets per haplotype), `sexe`, and paths to the BAM, alleleCounter output, somatic SNV VCF, copy-number segments, and subclonal/CCF file.
 
 ---
 
